@@ -18,7 +18,7 @@
     const date = new Date();
     return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
   };
-  const fresh = () => ({ version: 1, settings: { speed: 35, accuracy: 95, goal: 15 }, unlocked: 8, focus: 'h', mastered: [], bank: [], totalMs: 0, attempts: 0, correct: 0, letters: {}, records: [], run: null, keyboard: true });
+  const fresh = () => ({ version: 1, settings: { speed: 30, accuracy: 95, goal: 15 }, unlocked: 8, focus: 'h', mastered: [], bank: [], totalMs: 0, attempts: 0, correct: 0, letters: {}, records: [], run: null, keyboard: true });
   let state = fresh();
   let storageAvailable = true;
   let migrated = false;
@@ -215,7 +215,7 @@
     const focus = state.run.letters[state.focus];
     $('focus-caption').textContent = focus?.timed ? `${Math.round(speed(focus))} wpm · ${Math.round(accuracy(focus))}% on “${state.focus}”` : 'A new letter, a little more possibility';
     if (state.dailyMs >= state.settings.goal * 60000) $('progress-note').textContent = 'Your daily goal, done. Stay a little longer or enjoy a well-earned break.';
-    else $('progress-note').textContent = 'Master your focus letter to unlock the next. Your pace is the right pace.';
+    else $('progress-note').textContent = `Reach ${state.settings.speed} wpm and ${state.settings.accuracy}% on “${state.focus}” with 10 timed correct presses. Progress is checked after every 12-word round.`;
   }
 
   const finger = key => {
@@ -324,6 +324,11 @@
     const key = keyElements.get(character);
     if (key) { key.classList.add('pressed'); setTimeout(() => key.classList.remove('pressed'), 130); }
     if (state.run.position === state.run.text.length) {
+      // Evaluate before rolling over so the finished round is counted exactly once.
+      if (qualifies(state.run.letters[state.focus] || makeStat(), state.settings)) {
+        finish();
+        return;
+      }
       state.run.completedWords += state.bank.length;
       state.run.text = ' ' + makeLesson(state.bank);
       state.run.position = 0;
@@ -358,6 +363,7 @@
       }
     }
     $('result-title').textContent = mastered ? 'Room for one more letter.' : 'Practice makes progress.';
+    $('next-lesson').textContent = mastered ? `Practice “${state.focus}” →` : `Keep practicing “${focus}” →`;
     $('result-message').textContent = mastered ? `You reached both targets for “${focus}”. Your next focus is “${state.focus}”.` : `Another little step forward. Let’s keep building confidence with “${focus}” and the same familiar words.`;
     $('result-metrics').innerHTML = `<div><strong>${record.wpm}</strong><span>words / minute</span></div><div><strong>${record.accuracy}%</strong><span>accuracy</span></div><div><strong>${formatTime(record.ms)}</strong><span>active time</span></div>`;
     $('result-detail').textContent = `${record.words} words practiced. Your “${focus}”: ${record.focusSpeed} wpm, ${record.focusAccuracy}% accuracy (${stat.timed} timed correct presses). Target: ${state.settings.speed} wpm and ${state.settings.accuracy}%, with at least 10 timed correct presses.`;

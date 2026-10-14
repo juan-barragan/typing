@@ -123,10 +123,14 @@ async def main():
           check(saved().records.length === 1 && saved().unlocked === 8, 'failed accuracy blocks unlock');
           document.getElementById('next-lesson').click();
           check(saved().bank.join(',') === bank, 'bank persists until mastery');
-          for(let round = 0; round < 3; round++) for (const c of saved().run.text) press(c);
-          for(const c of saved().run.text.slice(0,2)) press(c);
+          // At 33 WPM, the new 30 WPM default should advance automatically.
+          window.press = key => { fakeTime += 360; document.getElementById('typing-input').dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true})); };
+          for(let round = 0; round < 3 && saved().run; round++) for (const c of saved().run.text) press(c);
+          check(document.getElementById('result-dialog').open && saved().run === null, 'targets automatically finish the round');
+          check(saved().records[1].words <= 36 && saved().records[1].words % 12 === 0, 'automatic completion counts full rounds once');
+          check(document.getElementById('next-lesson').textContent.includes('Practice “r”'), 'next stage button names unlocked letter');
           document.getElementById('finish-lesson').click();
-          check(saved().records[1].words === 36, 'manual finish during a later round');
+          check(saved().records.length === 2, 'automatic completion cannot be recorded twice');
           check(saved().unlocked === 9 && saved().focus === 'r', 'mastery unlocks next letter');
           check(saved().records.length === 2 && saved().records[1].mastered, 'lesson history');
           document.getElementById('next-lesson').click();
@@ -228,7 +232,7 @@ async def main():
           const alexId = registry()[0].id;
           const alex = localStorage.getItem('typewell.profile.' + alexId + '.v1');
           open(); submit('Sam');
-          check(registry().length === 2 && saved().unlocked === 8 && saved().records.length === 0 && saved().run.position === 0 && saved().settings.speed === 35, 'second profile starts independently');
+          check(registry().length === 2 && saved().unlocked === 8 && saved().records.length === 0 && saved().run.position === 0 && saved().settings.speed === 30, 'second profile starts independently');
           document.getElementById('start-button').click();
           const input = document.getElementById('typing-input');
           input.dispatchEvent(new KeyboardEvent('keydown',{key:saved().run.text[0],bubbles:true}));
@@ -270,7 +274,11 @@ async def main():
           document.getElementById('start-button').click();
           const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
           const run = JSON.parse(localStorage.getItem(key)).run;
-          for (const c of run.text.slice(run.position)) document.getElementById('typing-input').dispatchEvent(new KeyboardEvent('keydown',{key:c,bubbles:true}));
+          // Keep this lesson below the accuracy target to exercise manual finishing.
+          for (const c of run.text.slice(run.position)) {
+            if(c !== ' ') document.getElementById('typing-input').dispatchEvent(new KeyboardEvent('keydown',{key:'!',bubbles:true}));
+            document.getElementById('typing-input').dispatchEvent(new KeyboardEvent('keydown',{key:c,bubbles:true}));
+          }
           document.getElementById('pause').click();
           if(document.getElementById('finish-lesson').hidden) throw new Error('Mobile finish button missing');
         })()""")
