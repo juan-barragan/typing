@@ -48,10 +48,14 @@ async def main():
           check(document.querySelectorAll('.char').length > 30, 'practice words did not render');
           check(TYPEWELL_WORDS.every(w => /^[a-z]+$/.test(w)), 'dictionary normalization');
           check(new Set(TYPEWELL_WORDS).size === TYPEWELL_WORDS.length, 'dictionary deduplication');
-          const {ORDER, makeBank, makeLesson, prepareRun, qualifies, speed, accuracy} = Typewell;
+          const {ORDER, MARKS, makeBank, makeSentenceBank, makeLesson, prepareRun, qualifies, speed, accuracy, slowest, weakestPair, shiftFor, baseKey, markOf} = Typewell;
           check(new Set(ORDER).size === 26, 'alphabet');
+          const dictionary = new Set(TYPEWELL_WORDS), common = new Set(TYPEWELL_COMMON);
+          check(TYPEWELL_COMMON.length >= 5000 && TYPEWELL_COMMON.every(w => dictionary.has(w)) && common.size === TYPEWELL_COMMON.length, 'common words come from the dictionary');
+          check(TYPEWELL_COMMON.slice(0,5).includes('the') && TYPEWELL_PAIRS.length === 40 && TYPEWELL_PAIRS.every(p => /^[a-z]{2}$/.test(p)) && TYPEWELL_PAIRS.includes('th'), 'frequency ranking and letter pairs');
           for (let n = 8; n <= 26; n++) {
-            const focus = ORDER[n-1], bank = makeBank(TYPEWELL_WORDS,n,focus,() => .4);
+            const focus = ORDER[n-1], bank = makeBank(TYPEWELL_WORDS,n,focus,() => .4,TYPEWELL_COMMON);
+            check(bank.filter(w => common.has(w)).length >= 8, 'everyday words preferred at stage ' + n);
             check(bank.length === 12 && new Set(bank).size === 12, '12 distinct words at stage ' + n);
             check(bank.every(w => [...w].every(c => ORDER.slice(0,n).includes(c))), 'locked letter at stage ' + n);
             const lesson = makeLesson(bank);
@@ -59,6 +63,45 @@ async def main():
             check([...lesson].filter(c => c === focus).length * 3 >= 10, 'insufficient focus opportunities ' + focus);
             check(bank.every(w => lesson.split(' ').filter(x => x === w).length === 1), 'one complete bank per round');
           }
+          for (const pair of TYPEWELL_PAIRS) {
+            const bank = makeBank(TYPEWELL_WORDS,26,pair,() => .4,TYPEWELL_COMMON);
+            check(bank.length === 12 && new Set(bank).size === 12 && bank.every(w => w.includes(pair)), 'every pair bank word contains ' + pair);
+          }
+          const fluent = {attempts:20,correct:20,timed:20,milliseconds:6000}, slow = {...fluent,milliseconds:20000};
+          const settings = {speed:35,accuracy:95};
+          check(weakestPair(['th','he','in'],{},[],settings) === 'th', 'unseen pairs keep frequency order');
+          check(weakestPair(['th','he','in'],{th:slow,he:{...slow,milliseconds:30000}},[],settings) === 'in', 'unseen pair before practiced ones');
+          check(weakestPair(['th','he','in'],{th:slow,he:{...slow,milliseconds:30000},in:fluent},[],settings) === 'he', 'slowest unfluent pair');
+          check(weakestPair(['th','he'],{he:slow},['th'],settings) === 'he', 'mastered pairs skipped');
+          check(weakestPair(['th','he'],{th:fluent,he:{...fluent,milliseconds:5000}},['th','he'],settings) === null, 'all pairs fluent: none left');
+          check(slowest(['.',',','?'],{'.':fluent,',':slow}) === '?' && slowest(['.',','],{'.':fluent,',':slow}) === ',', 'slowest unit');
+          check(TYPEWELL_SENTENCES.length >= 5000 && TYPEWELL_SENTENCES.every(s => /^[A-Z][A-Za-z0-9 .,'?!\\-";:]{19,89}$/.test(s)), 'sentence data');
+          check(MARKS.at(-1) === '0-9' && TYPEWELL_SENTENCES.filter(s => /[0-9]/.test(s)).length >= 600, 'digits come last, with enough sentences');
+          check(shiftFor('A') === 'ShiftRight' && shiftFor('K') === 'ShiftLeft' && shiftFor('?') === 'ShiftLeft' && shiftFor('!') === 'ShiftRight' && shiftFor('"') === 'ShiftLeft' && shiftFor(':') === 'ShiftLeft', 'opposite Shift');
+          check(shiftFor('a') === null && shiftFor('.') === null && shiftFor("'") === null && baseKey('?') === '/' && baseKey('"') === "'" && baseKey('T') === 't', 'base keys');
+          for (let n = 2; n <= MARKS.length; n++) {
+            const focus = n === 2 ? '⇧' : MARKS[n-1], unlocked = MARKS.slice(0,n);
+            const sentences = makeSentenceBank(TYPEWELL_SENTENCES,unlocked,focus,() => .4);
+            check(sentences.length === 6 && new Set(sentences).size === 6, '6 sentences for ' + focus);
+            check(sentences.every(s => [...s].every(c => !markOf(c) || unlocked.includes(markOf(c)))), 'locked mark in sentences for ' + focus);
+            const units = [...makeLesson(sentences)].filter(c => markOf(c) === focus).length;
+            check(sentences.every(s => [...s].some(c => markOf(c) === focus)) && units * 2 >= 10, 'focus opportunities for ' + focus);
+          }
+          const {codeUnits, makeCodeBank} = Typewell;
+          for (const language of ['python','typescript']) {
+            const snippets = TYPEWELL_SNIPPETS[language], units = codeUnits(snippets);
+            const comment = language === 'python' ? '# ' : '// ';
+            check(snippets.length >= 30 && snippets.every(s => s.startsWith(comment) && /^[ -~\\n]+$/.test(s) && !/ \\n/.test(s)), 'snippet data ' + language);
+            check(units.length >= 20 && units.includes('0-9') && units.includes('(') && !units.includes('⇧'), 'code units ' + language);
+            for (const unit of units) {
+              check(snippets.filter(s => [...s].some(c => markOf(c) === unit)).length >= 3, 'unit in 3 snippets ' + language + ' ' + unit);
+              const code = makeCodeBank(snippets, unit, () => .4);
+              check(code.length === 2 && new Set(code).size === 2 && code.every(s => [...s].some(c => markOf(c) === unit)), 'code bank ' + language + ' ' + unit);
+            }
+          }
+          check(codeUnits(TYPEWELL_SNIPPETS.typescript).includes(';') && !codeUnits(TYPEWELL_SNIPPETS.python).includes(';') && codeUnits(TYPEWELL_SNIPPETS.python).includes('@'), 'language-specific units');
+          check(baseKey('\\n') === 'Enter' && markOf('7') === '0-9' && markOf('Q') === '⇧' && markOf('q') === null && markOf('{') === '{' && markOf('\\n') === null, 'code keys and units');
+          check(makeLesson(['a = 1','b = 2'], () => .4, '\\n\\n').split('\\n\\n').length === 2, 'snippet separator');
           const bank = makeBank(TYPEWELL_WORDS,8,'h',() => .4);
           const round = makeLesson(bank,() => .4);
           for(const position of [2, round.length, round.length + 3, round.length * 2 + 1, round.length * 3 + 2]) {
@@ -74,7 +117,7 @@ async def main():
           check(!qualifies({...good,correct:18},{speed:35,accuracy:95}), 'accuracy gate');
           check(!qualifies({...good,milliseconds:10000},{speed:35,accuracy:95}), 'speed gate');
           check(!qualifies({...good,attempts:9,timed:9},{speed:35,accuracy:95}), 'sample gate');
-          return 'PASS: dictionary, all 19 unlock stages, coverage, lesson repetition, metric math, promotion gates';
+          return 'PASS: dictionary, common words, sentences, all 19 unlock stages, coverage, 40 pair banks, weakest pair, 10 sentence stages including digits, Shift mapping, code units and banks for both languages, lesson repetition, metric math, promotion gates';
         })()"""))
 
         async def screenshot(name):
@@ -114,6 +157,9 @@ async def main():
           check(document.activeElement.id === 'typing-input' && document.getElementById('practice-card').classList.contains('running'), 'first round preserves typing focus and timer');
           check(document.getElementById('practice-card').getBoundingClientRect().height === cardHeight, 'finish button must not shift layout');
           check(saved().run.completedWords === 12 && saved().run.text[0] === ' ', 'continuous word separator');
+          const pairsTyped = run.text.split(' ').flatMap(w => [...w].slice(1).map((c, i) => w[i] + c));
+          check(pairsTyped.every(p => saved().run.pairs[p]?.correct >= 1) && Object.keys(saved().run.pairs).every(p => pairsTyped.includes(p)), 'pairs recorded within words only');
+          check(pairsTyped.filter(p => p === 'th').length === (saved().run.pairs.th?.correct || 0), 'pair correct presses counted once');
           for(let round = 0; round < 3; round++) for (const c of saved().run.text) press(c);
           check(saved().run.completedWords === 48 && !document.getElementById('result-dialog').open, 'no three-round cap');
           check(saved().run.text.trim().split(' ').length === 12 && document.querySelectorAll('.word').length <= 13, 'unlimited practice keeps bounded text');
@@ -293,6 +339,261 @@ async def main():
           if(!document.getElementById('result-dialog').open) throw new Error('Cannot manually finish restored practice');
           return 'PASS: unlimited round progress and finish availability survive reload; mobile manual finish works';
         })()"""))
+
+        # Jump to the final letter, then master it and one letter pair.
+        await command('browsingContext.navigate', {'context': context, 'url': 'http://127.0.0.1:8080/README.md', 'wait': 'complete'})
+        await evaluate("""(() => {
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const state = JSON.parse(localStorage.getItem(key));
+          Object.assign(state, {unlocked: 26, focus: 'z', bank: [], run: null});
+          delete state.pairs; delete state.masteredPairs;
+          localStorage.setItem(key, JSON.stringify(state));
+        })()""")
+        await command('browsingContext.setViewport', {'context': context, 'viewport': {'width': 1440, 'height': 1120}})
+        await command('browsingContext.navigate', {'context': context, 'url': 'http://127.0.0.1:8080/', 'wait': 'complete'})
+        print(await evaluate("""(() => {
+          const check = (value, message) => { if (!value) throw new Error(message); };
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const saved = () => JSON.parse(localStorage.getItem(key));
+          window.fakeTime = 1000; performance.now = () => fakeTime;
+          const press = c => { fakeTime += 150; document.getElementById('typing-input').dispatchEvent(new KeyboardEvent('keydown',{key:c,bubbles:true})); };
+          const master = () => {
+            document.getElementById('start-button').click();
+            for (let round = 0; round < 5 && saved().run; round++) for (const c of saved().run.text.slice(saved().run.position)) press(c);
+            check(document.getElementById('result-dialog').open, 'fast typing completes the lesson');
+          };
+          check(document.getElementById('pair-strip').hidden && saved().masteredPairs.length === 0, 'older saves upgrade without pairs');
+          const badge = document.getElementById('next-letter');
+          check(badge.textContent.startsWith('LAST STEP: MASTER') && badge.querySelector('b').textContent === 'z' && badge.textContent.endsWith('LETTER PAIRS'), 'badge names the last letter and what it opens');
+          check(document.getElementById('progress-note').textContent.endsWith('Then letter pairs begin.'), 'note says pairs come next');
+          master();
+          const pair = saved().focus;
+          check(saved().mastered.includes('z') && TYPEWELL_PAIRS.includes(pair), 'mastering the last letter starts letter pairs');
+          check(document.getElementById('result-title').textContent === 'Every letter, yours.' && document.getElementById('next-lesson').textContent.includes(pair), 'pair stage announced');
+          document.getElementById('next-lesson').click();
+          check(saved().bank.length === 12 && saved().bank.every(w => w.includes(pair)), 'pair bank');
+          check(!document.getElementById('pair-strip').hidden && document.querySelectorAll('#pair-strip .letter').length === 40 && document.querySelector('#pair-strip .focused').textContent === pair, 'pair strip');
+          check(document.getElementById('focus-letter').textContent === pair && document.getElementById('lesson-description').textContent === 'Letter pairs', 'pair focus shown');
+          press('Escape');
+          return 'PASS: mastering the last letter starts letter pairs, beginning with “' + pair + '”';
+        })()"""))
+        await screenshot('typewell-pairs.png')
+        await command('browsingContext.setViewport', {'context': context, 'viewport': {'width': 390, 'height': 844}})
+        await asyncio.sleep(.3)
+        assert await evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Mobile pair strip overflow'
+        await screenshot('typewell-pairs-mobile.png')
+        await command('browsingContext.setViewport', {'context': context, 'viewport': {'width': 1440, 'height': 1120}})
+        await command('browsingContext.reload', {'context': context, 'wait': 'complete'})
+        print(await evaluate("""(() => {
+          const check = (value, message) => { if (!value) throw new Error(message); };
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const saved = () => JSON.parse(localStorage.getItem(key));
+          const pair = saved().focus;
+          check(TYPEWELL_PAIRS.includes(pair) && saved().records.length > 0 && document.querySelector('#pair-strip .focused')?.textContent === pair, 'pair stage survives reload');
+          window.fakeTime = 1000; performance.now = () => fakeTime;
+          const press = c => { fakeTime += 150; document.getElementById('typing-input').dispatchEvent(new KeyboardEvent('keydown',{key:c,bubbles:true})); };
+          document.getElementById('start-button').click();
+          for (let round = 0; round < 5 && saved().run; round++) for (const c of saved().run.text.slice(saved().run.position)) press(c);
+          const record = saved().records.at(-1);
+          check(record.focus === pair && record.mastered && saved().masteredPairs.includes(pair), 'pair mastery recorded');
+          check(saved().focus !== pair && TYPEWELL_PAIRS.includes(saved().focus) && saved().unlocked === 26, 'next weakest pair chosen');
+          check(document.getElementById('result-title').textContent === 'That pair flows now.', 'pair result message');
+          document.getElementById('next-lesson').click();
+          check(document.querySelectorAll('#pair-strip .mastered').length === 1, 'mastered pair marked');
+          return 'PASS: last letter leads to letter pairs; pair banks, strip, mastery, and next pair survive reload';
+        })()"""))
+
+        # Leave one pair to master, then move on to real sentences.
+        pairs = await evaluate('JSON.stringify(TYPEWELL_PAIRS)')
+        await command('browsingContext.navigate', {'context': context, 'url': 'http://127.0.0.1:8080/README.md', 'wait': 'complete'})
+        await evaluate("""(() => {
+          const pairs = PAIRS_JSON;
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const state = JSON.parse(localStorage.getItem(key));
+          Object.assign(state, {focus: pairs.at(-1), masteredPairs: pairs.slice(0, -1), bank: [], run: null});
+          delete state.marks; delete state.masteredMarks; delete state.unlockedMarks;
+          localStorage.setItem(key, JSON.stringify(state));
+        })()""".replace('PAIRS_JSON', pairs))
+        await command('browsingContext.navigate', {'context': context, 'url': 'http://127.0.0.1:8080/', 'wait': 'complete'})
+        print(await evaluate("""(() => {
+          const check = (value, message) => { if (!value) throw new Error(message); };
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const saved = () => JSON.parse(localStorage.getItem(key));
+          const input = document.getElementById('typing-input');
+          window.fakeTime = 1000; performance.now = () => fakeTime;
+          // Hold the given Shift for shifted characters, like a physical keyboard.
+          const press = (c, side) => {
+            const shift = side || Typewell.shiftFor(c);
+            if (shift) input.dispatchEvent(new KeyboardEvent('keydown',{key:'Shift',code:shift,shiftKey:true,bubbles:true}));
+            fakeTime += 150;
+            input.dispatchEvent(new KeyboardEvent('keydown',{key:c,shiftKey:!!shift,bubbles:true}));
+            if (shift) input.dispatchEvent(new KeyboardEvent('keyup',{key:'Shift',code:shift,bubbles:true}));
+          };
+          const typeAll = () => { for (let round = 0; round < 6 && saved().run; round++) for (const c of saved().run.text.slice(saved().run.position)) press(c); };
+          check(saved().focus === TYPEWELL_PAIRS.at(-1) && saved().unlockedMarks === 0, 'older saves upgrade without marks');
+          document.getElementById('start-button').click();
+          typeAll();
+          check(saved().focus === '⇧' && saved().unlockedMarks === 2 && saved().masteredPairs.length === 40, 'mastering every pair starts sentences');
+          check(document.getElementById('result-title').textContent === 'On to real sentences.' && document.getElementById('next-lesson').textContent.includes('capitals'), 'sentences announced');
+          document.getElementById('next-lesson').click();
+          press('Escape');
+          const bank = saved().bank;
+          check(bank.length === 6 && bank.every(s => TYPEWELL_SENTENCES.includes(s) && /^[A-Za-z .]+$/.test(s)), 'capitals bank uses only letters and full stops');
+          check(!document.getElementById('mark-strip').hidden && document.querySelectorAll('#mark-strip .letter').length === 11 && document.querySelectorAll('#mark-strip .unlocked').length === 2 && document.querySelector('#mark-strip .focused').textContent === '⇧', 'mark strip');
+          check(document.getElementById('lesson-description').textContent === 'Real sentences' && saved().run.text.split(' ').length === bank.join(' ').split(' ').length, 'sentence round');
+          const first = saved().run.text[0];
+          const nextKeys = [...document.querySelectorAll('.key.next')].map(k => k.textContent);
+          check(/[A-Z]/.test(first) && nextKeys.length === 2 && nextKeys.includes('Shift') && nextKeys.includes(first), 'keyboard shows key and opposite Shift');
+          document.getElementById('start-button').click();
+          press(first, Typewell.shiftFor(first) === 'ShiftLeft' ? 'ShiftRight' : 'ShiftLeft');
+          check(saved().run.position === 1 && saved().run.shiftMisses === 1 && saved().run.marks['⇧'].correct === 1, 'same-hand Shift is correct but counted');
+          check(document.getElementById('typing-hint').textContent.includes('Shift, with the other hand'), 'same-hand Shift hint');
+          const second = saved().run.text[1];
+          press(second);
+          check(Typewell.shiftFor(second) || document.getElementById('typing-hint').textContent.includes('Shift, with the other hand'), 'hint stays until the next shifted key');
+          check(!saved().run.letters[first] && !Object.keys(saved().run.pairs).some(p => /[A-Z]/.test(p)), 'capitals kept out of letters and pairs');
+          typeAll();
+          const record = saved().records.at(-1);
+          check(record.focus === '⇧' && record.mastered && record.shiftMisses === 1 && record.shifted > 1, 'capitals mastered with Shift record');
+          check(saved().focus === ',' && saved().unlockedMarks === 3 && saved().masteredMarks.includes('⇧'), 'next mark unlocked');
+          check(document.getElementById('result-title').textContent === 'Room for one more mark.' && document.getElementById('result-detail').textContent.includes('Opposite-hand Shift'), 'mark result');
+          document.getElementById('next-lesson').click();
+          press('Escape');
+          check(saved().bank.every(s => s.includes(',') && /^[A-Za-z .,]+$/.test(s)), 'comma bank');
+          return 'PASS: last pair leads to sentences; capitals, opposite-Shift hints, mark unlocking, and sentence banks';
+        })()"""))
+        await screenshot('typewell-sentences.png')
+        await command('browsingContext.reload', {'context': context, 'wait': 'complete'})
+        print(await evaluate("""(() => {
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const state = JSON.parse(localStorage.getItem(key));
+          if (state.focus !== ',' || state.unlockedMarks !== 3 || document.querySelector('#mark-strip .focused')?.textContent !== ',' || !state.run.text.includes(',')) throw new Error('Sentence stage not restored');
+          return 'PASS: sentence stage survives reload';
+        })()"""))
+
+        # Jump to the last mark, then master it to reach digits in prose.
+        await command('browsingContext.navigate', {'context': context, 'url': 'http://127.0.0.1:8080/README.md', 'wait': 'complete'})
+        await evaluate("""(() => {
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const state = JSON.parse(localStorage.getItem(key));
+          // A save left in Python mode before code unlocked must come back to the guided path.
+          // 0-9 is Python's most frequent unit, so the later code-mode checks still start fresh.
+          Object.assign(state, {mode: 'python', focus: '0-9', bank: [], run: null, unlockedMarks: 10, tracks: {guided: {focus: ':', bank: [], run: null}}, code: {python: {unlocked: 1, mastered: []}}});
+          localStorage.setItem(key, JSON.stringify(state));
+        })()""")
+        await command('browsingContext.navigate', {'context': context, 'url': 'http://127.0.0.1:8080/', 'wait': 'complete'})
+        print(await evaluate("""(() => {
+          const check = (value, message) => { if (!value) throw new Error(message); };
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const saved = () => JSON.parse(localStorage.getItem(key));
+          const input = document.getElementById('typing-input');
+          window.fakeTime = 1000; performance.now = () => fakeTime;
+          const press = c => {
+            const shift = Typewell.shiftFor(c);
+            if (shift) input.dispatchEvent(new KeyboardEvent('keydown',{key:'Shift',code:shift,shiftKey:true,bubbles:true}));
+            fakeTime += 150;
+            input.dispatchEvent(new KeyboardEvent('keydown',{key:c,shiftKey:!!shift,bubbles:true}));
+            if (shift) input.dispatchEvent(new KeyboardEvent('keyup',{key:'Shift',code:shift,bubbles:true}));
+          };
+          const select = document.getElementById('mode-select');
+          const codeOptions = () => [...select.options].filter(o => o.value !== 'guided');
+          check(saved().mode === 'guided' && saved().focus === ':' && saved().tracks.python.focus === '0-9' && saved().code.python, 'locked code mode falls back to the guided path, keeping code progress');
+          check(codeOptions().every(o => o.disabled && o.textContent.endsWith('(locked)')) && select.value === 'guided', 'code options locked before step 3 is done');
+          select.value = 'python'; select.dispatchEvent(new Event('change', {bubbles:true}));
+          check(saved().mode === 'guided' && select.value === 'guided', 'locked code mode cannot be chosen');
+          check(saved().bank.every(s => s.includes(':') && !/[0-9]/.test(s)), 'no digits before they unlock');
+          document.getElementById('start-button').click();
+          for (let round = 0; round < 6 && saved().run; round++) for (const c of saved().run.text.slice(saved().run.position)) press(c);
+          check(saved().focus === '0-9' && saved().unlockedMarks === 11 && saved().masteredMarks.includes(':'), 'digits unlock after the last mark');
+          check(document.getElementById('result-title').textContent === 'On to numbers.' && document.getElementById('next-lesson').textContent.includes('digits'), 'digits announced');
+          document.getElementById('next-lesson').click();
+          press('Escape');
+          check(saved().bank.every(s => /[0-9]/.test(s)) && document.querySelector('#mark-strip .focused').textContent === '0-9', 'digit sentences');
+          check(document.getElementById('focus-caption').textContent === 'Years, times, and amounts' && document.getElementById('next-letter').textContent === 'LAST STEP: MASTER 0-9→CODE MODE' && document.getElementById('progress-note').textContent.endsWith('Then code mode unlocks.'), 'digits labels name code mode as next');
+          document.getElementById('start-button').click();
+          for (let round = 0; round < 6 && saved().run; round++) for (const c of saved().run.text.slice(saved().run.position)) press(c);
+          check(saved().records.at(-1).focus === '0-9' && saved().records.at(-1).mastered && saved().marks['0-9'].timed >= 10, 'digits mastered in prose');
+          check(document.getElementById('result-message').textContent.includes('Code mode is now unlocked'), 'code unlock announced');
+          check(Typewell.MARKS.includes(saved().focus) && saved().unlockedMarks === 11, 'everything unlocked: slowest unit next');
+          document.getElementById('next-lesson').click();
+          press('Escape');
+          check(codeOptions().every(o => !o.disabled && !o.textContent.includes('locked')), 'code options unlocked after digits');
+          check(document.getElementById('next-letter').textContent.startsWith('EVERYTHING UNLOCKED') && !document.getElementById('progress-note').textContent.includes('Then'), 'badge once everything is open');
+          return 'PASS: digits in prose unlock after the last mark; code mode stays locked until then';
+        })()"""))
+        print(await evaluate("""(() => {
+          const check = (value, message) => { if (!value) throw new Error(message); };
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const saved = () => JSON.parse(localStorage.getItem(key));
+          const input = document.getElementById('typing-input');
+          const select = document.getElementById('mode-select');
+          const choose = mode => { select.value = mode; select.dispatchEvent(new Event('change', {bubbles:true})); };
+          window.fakeTime = 1000; performance.now = () => fakeTime;
+          const press = c => {
+            const shift = Typewell.shiftFor(c);
+            if (shift) input.dispatchEvent(new KeyboardEvent('keydown',{key:'Shift',code:shift,shiftKey:true,bubbles:true}));
+            fakeTime += 150;
+            input.dispatchEvent(new KeyboardEvent('keydown',{key:c === '\\n' ? 'Enter' : c,shiftKey:!!shift,bubbles:true}));
+            if (shift) input.dispatchEvent(new KeyboardEvent('keyup',{key:'Shift',code:shift,bubbles:true}));
+          };
+          const guided = {focus: saved().focus, position: saved().run.position, text: saved().run.text};
+          const python = Typewell.codeUnits(TYPEWELL_SNIPPETS.python), typescript = Typewell.codeUnits(TYPEWELL_SNIPPETS.typescript);
+          choose('python');
+          check(saved().mode === 'python' && saved().focus === python[0] && saved().code.python.unlocked === 1, 'Python mode starts at its most frequent symbol');
+          check(saved().tracks.guided.focus === guided.focus && saved().tracks.guided.run.position === guided.position, 'guided lesson kept while coding');
+          check(saved().bank.length === 2 && saved().bank.every(s => TYPEWELL_SNIPPETS.python.includes(s)) && saved().run.text.startsWith('# '), 'round of two snippets, starting with a goal comment');
+          check(document.getElementById('words').classList.contains('code') && document.querySelectorAll('.code-line').length === saved().run.text.split('\\n').length && document.querySelector('.code-line.comment'), 'code rendered line by line');
+          check(document.querySelectorAll('.char').length === saved().run.text.length && document.querySelectorAll('.char.newline').length === saved().run.text.split('\\n').length - 1, 'every character, including Enter, has a cursor position');
+          check(!document.getElementById('code-strip').hidden && document.querySelectorAll('#code-strip .letter').length === python.length && document.getElementById('mark-strip').hidden && document.getElementById('pair-strip').hidden, 'code strip');
+          check(document.getElementById('lesson-description').textContent === 'Python code' && document.getElementById('focus-letter').textContent === python[0], 'code labels');
+          document.getElementById('start-button').click();
+          let skipped = 0;
+          for (let i = 0; i < 20000 && saved().run; i++) {
+            const run = saved().run, c = run.text[run.position];
+            press(c);
+            const after = saved().run;
+            if (c === '\\n' && after) {
+              check(after.text[after.position] !== ' ', 'indentation skipped after Enter');
+              if (after.position > run.position + 1) skipped++;
+            }
+          }
+          check(skipped > 0, 'indented lines were reached');
+          const record = saved().records.at(-1);
+          check(record.mode === 'python' && record.focus === python[0] && record.mastered, 'symbol mastered in Python');
+          check(saved().focus === python[1] && saved().code.python.unlocked === 2 && saved().code.python.mastered.includes(python[0]), 'next Python symbol');
+          check(document.getElementById('result-title').textContent === 'Room for one more symbol.', 'code result');
+          check(!saved().letters['\\n'] && !saved().marks['\\n'] && saved().marks['0-9']?.correct > 0, 'Enter not counted as a symbol; digits grouped');
+          document.getElementById('next-lesson').click();
+          press('Escape');
+          choose('typescript');
+          check(saved().mode === 'typescript' && saved().focus === typescript[0] && saved().tracks.python.focus === python[1], 'TypeScript keeps separate progress');
+          check(saved().run.text.startsWith('// ') && document.getElementById('lesson-description').textContent === 'TypeScript code', 'TypeScript round');
+          choose('guided');
+          check(saved().mode === 'guided' && saved().focus === guided.focus && saved().run.text === guided.text && saved().run.position === guided.position, 'guided lesson resumes exactly');
+          check(!document.getElementById('words').classList.contains('code') && !document.getElementById('mark-strip').hidden && document.getElementById('code-strip').hidden, 'guided rendering restored');
+          choose('python');
+          check(saved().focus === python[1] && saved().run.position === 0, 'Python resumes its next symbol');
+          document.getElementById('session-tab').click();
+          check([...document.querySelectorAll('#session-results td')].some(td => td.textContent.startsWith('Python ')), 'history names the language');
+          document.getElementById('practice-tab').click();
+          return 'PASS: Python and TypeScript code modes, goal comments, Enter and indentation, symbol progression, and switching back to the guided path';
+        })()"""))
+        await screenshot('typewell-code.png')
+        await command('browsingContext.reload', {'context': context, 'wait': 'complete'})
+        print(await evaluate("""(() => {
+          const key = 'typewell.profile.' + localStorage.getItem('typewell.active-profile.v1') + '.v1';
+          const state = JSON.parse(localStorage.getItem(key));
+          if (state.mode !== 'python' || document.getElementById('mode-select').value !== 'python' || !document.getElementById('words').classList.contains('code')) throw new Error('Code mode not restored');
+          document.getElementById('start-button').click();
+          return 'PASS: code mode survives reload';
+        })()"""))
+        await asyncio.sleep(.3)
+        await screenshot('typewell-code-active.png')
+        await command('browsingContext.setViewport', {'context': context, 'viewport': {'width': 390, 'height': 844}})
+        await asyncio.sleep(.3)
+        assert await evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Mobile code mode overflow'
+        await screenshot('typewell-code-mobile.png')
+        await command('browsingContext.setViewport', {'context': context, 'viewport': {'width': 1440, 'height': 1120}})
         await command('browsingContext.close', {'context': context})
         await command('session.end', {})
 
